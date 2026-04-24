@@ -18,12 +18,28 @@ input_shape = model.input_shape
 img_size = input_shape[1]
 
 # =========================
+# LEAF DETECTION FUNCTION
+# =========================
+def is_leaf_image(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # Green color range
+    lower_green = np.array([25, 40, 40])
+    upper_green = np.array([90, 255, 255])
+
+    mask = cv2.inRange(hsv, lower_green, upper_green)
+
+    # Percentage of green pixels
+    green_ratio = np.sum(mask > 0) / mask.size
+
+    return green_ratio > 0.10   # slightly relaxed threshold
+
+# =========================
 # LOAD CLASSES
 # =========================
 with open("classes.json", "r") as f:
     raw_class_names = json.load(f)
 
-# Clean class names
 class_names = [name.replace("___", " ").replace("_", " ") for name in raw_class_names]
 
 # =========================
@@ -58,7 +74,7 @@ st.title("🌿 Plant Disease Detection")
 st.write("Upload or capture a plant leaf image to detect diseases using AI.")
 
 # =========================
-# INPUT SELECTION (FIXED CAMERA ISSUE)
+# INPUT SELECTION
 # =========================
 option = st.radio("📥 Select Input Method", ["📁 Upload Image", "📸 Use Camera"])
 
@@ -80,6 +96,11 @@ if img_file is not None:
     st.image(img, caption="📷 Input Image", use_column_width=True)
 
     try:
+        # 🔥 LEAF DETECTION FIRST
+        if not is_leaf_image(img):
+            st.error("❌ This does not appear to be a plant leaf. Please upload a clear leaf image.")
+            st.stop()
+
         # Preprocess
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (img_size, img_size))
@@ -122,7 +143,6 @@ if img_file is not None:
         else:
             st.info("General advice: Remove affected leaves and consult an agricultural expert.")
 
-        # Accuracy note
         st.caption("Model accuracy: ~92% on validation dataset")
 
     except Exception as e:
