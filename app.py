@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import cv2
 import json
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 
 # =========================
@@ -13,26 +14,59 @@ def load_my_model():
 
 model = load_my_model()
 
-# Get model input size
 input_shape = model.input_shape
 img_size = input_shape[1]
 
 # =========================
-# LEAF DETECTION FUNCTION
+# LEAF DETECTION
 # =========================
 def is_leaf_image(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Green color range
     lower_green = np.array([25, 40, 40])
     upper_green = np.array([90, 255, 255])
 
     mask = cv2.inRange(hsv, lower_green, upper_green)
-
-    # Percentage of green pixels
     green_ratio = np.sum(mask > 0) / mask.size
 
-    return green_ratio > 0.10   # slightly relaxed threshold
+    return green_ratio > 0.10
+
+
+# =========================
+# GRAD-CAM HEATMAP
+# =========================
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
+    grad_model = tf.keras.models.Model(
+        [model.inputs],
+        [model.get_layer(last_conv_layer_name).output, model.output]
+    )
+
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+        pred_index = tf.argmax(predictions[0])
+        class_channel = predictions[:, pred_index]
+
+    grads = tape.gradient(class_channel, conv_outputs)
+
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_outputs = conv_outputs[0]
+
+    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+
+    heatmap = np.maximum(heatmap, 0) / np.max(heatmap + 1e-8)
+    return heatmap.numpy()
+
+
+def overlay_heatmap(img, heatmap):
+    heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
+    heatmap = np.uint8(255 * heatmap)
+
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    superimposed = cv2.addWeighted(img, 0.6, heatmap, 0.4, 0)
+
+    return superimposed
+
 
 # =========================
 # LOAD CLASSES
@@ -46,23 +80,23 @@ class_names = [name.replace("___", " ").replace("_", " ") for name in raw_class_
 # REMEDIES
 # =========================
 remedies = {
-    "Pepper bell Bacterial spot": "Use disease-free seeds. Avoid overhead watering. Apply copper-based bactericides.",
-    "Pepper bell healthy": "Plant is healthy. Maintain proper watering and sunlight.",
+    "Pepper bell Bacterial spot": "Use disease-free seeds. Avoid overhead watering.",
+    "Pepper bell healthy": "Plant is healthy. Maintain care.",
 
-    "Potato Early blight": "Remove infected leaves. Use fungicides like chlorothalonil.",
-    "Potato Late blight": "Apply fungicides immediately. Destroy infected plants to prevent spread.",
-    "Potato healthy": "Plant is healthy. Maintain proper care and soil health.",
+    "Potato Early blight": "Use fungicides and remove infected leaves.",
+    "Potato Late blight": "Apply fungicides immediately.",
+    "Potato healthy": "Healthy plant. Maintain care.",
 
-    "Tomato Bacterial spot": "Use certified seeds. Avoid overhead irrigation. Apply copper sprays.",
-    "Tomato Early blight": "Use crop rotation. Apply fungicide. Remove infected leaves.",
-    "Tomato Late blight": "Use resistant varieties. Apply fungicides. Avoid wet conditions.",
-    "Tomato Leaf Mold": "Improve air circulation. Reduce humidity. Avoid overcrowding.",
-    "Tomato Septoria leaf spot": "Remove infected leaves. Use fungicides. Avoid wet leaves.",
-    "Tomato Spider mites Two spotted spider mite": "Use insecticidal soap or neem oil. Maintain humidity.",
-    "Tomato Target Spot": "Remove infected leaves. Use fungicides. Improve ventilation.",
-    "Tomato Tomato YellowLeaf Curl Virus": "Control whiteflies. Remove infected plants immediately.",
-    "Tomato Tomato mosaic virus": "Remove infected plants. Disinfect tools. Avoid handling plants when wet.",
-    "Tomato healthy": "Plant is healthy. Maintain proper watering, sunlight, and nutrients."
+    "Tomato Bacterial spot": "Use copper sprays and avoid overhead irrigation.",
+    "Tomato Early blight": "Apply fungicide and remove infected leaves.",
+    "Tomato Late blight": "Use resistant varieties and fungicides.",
+    "Tomato Leaf Mold": "Improve airflow and reduce humidity.",
+    "Tomato Septoria leaf spot": "Remove infected leaves and apply fungicide.",
+    "Tomato Spider mites Two spotted spider mite": "Use neem oil or insecticidal soap.",
+    "Tomato Target Spot": "Use fungicides and improve ventilation.",
+    "Tomato Tomato YellowLeaf Curl Virus": "Control whiteflies.",
+    "Tomato Tomato mosaic virus": "Remove infected plants.",
+    "Tomato healthy": "Plant is healthy. Maintain care."
 }
 
 # =========================
@@ -71,19 +105,15 @@ remedies = {
 st.set_page_config(page_title="Plant Disease Detection", layout="centered")
 
 st.title("🌿 Plant Disease Detection")
-st.write("Upload or capture a plant leaf image to detect diseases using AI.")
+st.write("Upload or capture a plant leaf image")
 
-# =========================
-# INPUT SELECTION
-# =========================
 option = st.radio("📥 Select Input Method", ["📁 Upload Image", "📸 Use Camera"])
 
 img_file = None
 
 if option == "📁 Upload Image":
     img_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
-
-elif option == "📸 Use Camera":
+else:
     img_file = st.camera_input("Take Photo")
 
 # =========================
@@ -96,10 +126,12 @@ if img_file is not None:
     st.image(img, caption="📷 Input Image", use_column_width=True)
 
     try:
-        # 🔥 LEAF DETECTION FIRST
+        # Leaf detection
         if not is_leaf_image(img):
-            st.error("❌ This does not appear to be a plant leaf. Please upload a clear leaf image.")
+            st.error("❌ Not a plant leaf. Please upload a leaf image.")
             st.stop()
+
+        original_img = img.copy()
 
         # Preprocess
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -111,46 +143,40 @@ if img_file is not None:
         pred = model.predict(img, verbose=0)
         class_id = np.argmax(pred)
         confidence = np.max(pred)
-
         label = class_names[class_id]
 
-        # =========================
-        # OUTPUT
-        # =========================
         st.markdown("## 🌿 Prediction Result")
-
-        st.success(f"🌱 Prediction: {label}")
+        st.success(f"🌱 {label}")
         st.info(f"📊 Confidence: {confidence*100:.2f}%")
 
-        # Top 3 predictions
+        # Top 3
         st.write("### 🔍 Top Predictions")
         top3 = np.argsort(pred[0])[-3:][::-1]
-
         for i in top3:
             st.write(f"{class_names[i]}: {pred[0][i]*100:.2f}%")
 
-        # Confidence warning
-        if confidence < 0.85:
-            st.warning("⚠️ Low confidence. Try a clearer image or better lighting.")
+        # Heatmap
+        st.write("### 🔥 Model Focus (Heatmap)")
+        last_conv_layer = [layer.name for layer in model.layers if "conv" in layer.name][-1]
 
-        # =========================
-        # REMEDY
-        # =========================
+        heatmap = make_gradcam_heatmap(img, model, last_conv_layer)
+        heatmap_img = overlay_heatmap(original_img, heatmap)
+
+        st.image(heatmap_img, caption="Model Attention Area", use_column_width=True)
+
+        # Remedy
         st.write("### 🌿 Remedy")
-
         if label in remedies:
             st.success(remedies[label])
         else:
-            st.info("General advice: Remove affected leaves and consult an agricultural expert.")
-
-        st.caption("Model accuracy: ~92% on validation dataset")
+            st.info("Consult expert.")
 
     except Exception as e:
-        st.error("❌ Prediction failed")
+        st.error("❌ Error during prediction")
         st.text(str(e))
 
 # =========================
 # FOOTER
 # =========================
 st.markdown("---")
-st.markdown("Developed as Final Year Project | AI-Based Plant Disease Detection 🌱")
+st.markdown("Final Year Project | AI Plant Disease Detection 🌱")
