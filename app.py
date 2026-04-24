@@ -27,7 +27,7 @@ with open("classes.json", "r") as f:
 class_names = [name.replace("___", " ").replace("_", " ") for name in raw_class_names]
 
 # =========================
-# REMEDIES (ALL CLASSES)
+# REMEDIES
 # =========================
 remedies = {
     "Pepper bell Bacterial spot": "Use disease-free seeds. Avoid overhead watering. Apply copper-based bactericides.",
@@ -57,12 +57,18 @@ st.set_page_config(page_title="Plant Disease Detection", layout="centered")
 st.title("🌿 Plant Disease Detection")
 st.write("Upload or capture a plant leaf image to detect diseases using AI.")
 
-# Input
-img_file = st.file_uploader("📁 Upload Image", type=["jpg", "png", "jpeg"])
-camera_img = st.camera_input("📸 Take Photo")
+# =========================
+# INPUT SELECTION (FIXED CAMERA ISSUE)
+# =========================
+option = st.radio("📥 Select Input Method", ["📁 Upload Image", "📸 Use Camera"])
 
-if camera_img is not None:
-    img_file = camera_img
+img_file = None
+
+if option == "📁 Upload Image":
+    img_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+
+elif option == "📸 Use Camera":
+    img_file = st.camera_input("Take Photo")
 
 # =========================
 # PROCESS IMAGE
@@ -74,13 +80,13 @@ if img_file is not None:
     st.image(img, caption="📷 Input Image", use_column_width=True)
 
     try:
-        # Preprocessing
+        # Preprocess
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (img_size, img_size))
         img = img.astype("float32") / 255.0
         img = np.expand_dims(img, axis=0)
 
-        # Prediction
+        # Predict
         pred = model.predict(img, verbose=0)
         class_id = np.argmax(pred)
         confidence = np.max(pred)
@@ -107,7 +113,7 @@ if img_file is not None:
             st.warning("⚠️ Low confidence. Try a clearer image or better lighting.")
 
         # =========================
-        # REMEDY SECTION
+        # REMEDY
         # =========================
         st.write("### 🌿 Remedy")
 
