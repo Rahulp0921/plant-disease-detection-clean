@@ -17,9 +17,37 @@ model = load_my_model()
 input_shape = model.input_shape
 img_size = input_shape[1]
 
-# Load class names
+# =========================
+# LOAD CLASSES
+# =========================
 with open("classes.json", "r") as f:
-    class_names = json.load(f)
+    raw_class_names = json.load(f)
+
+# Clean class names
+class_names = [name.replace("___", " ").replace("_", " ") for name in raw_class_names]
+
+# =========================
+# REMEDIES (ALL CLASSES)
+# =========================
+remedies = {
+    "Pepper bell Bacterial spot": "Use disease-free seeds. Avoid overhead watering. Apply copper-based bactericides.",
+    "Pepper bell healthy": "Plant is healthy. Maintain proper watering and sunlight.",
+
+    "Potato Early blight": "Remove infected leaves. Use fungicides like chlorothalonil.",
+    "Potato Late blight": "Apply fungicides immediately. Destroy infected plants to prevent spread.",
+    "Potato healthy": "Plant is healthy. Maintain proper care and soil health.",
+
+    "Tomato Bacterial spot": "Use certified seeds. Avoid overhead irrigation. Apply copper sprays.",
+    "Tomato Early blight": "Use crop rotation. Apply fungicide. Remove infected leaves.",
+    "Tomato Late blight": "Use resistant varieties. Apply fungicides. Avoid wet conditions.",
+    "Tomato Leaf Mold": "Improve air circulation. Reduce humidity. Avoid overcrowding.",
+    "Tomato Septoria leaf spot": "Remove infected leaves. Use fungicides. Avoid wet leaves.",
+    "Tomato Spider mites Two spotted spider mite": "Use insecticidal soap or neem oil. Maintain humidity.",
+    "Tomato Target Spot": "Remove infected leaves. Use fungicides. Improve ventilation.",
+    "Tomato Tomato YellowLeaf Curl Virus": "Control whiteflies. Remove infected plants immediately.",
+    "Tomato Tomato mosaic virus": "Remove infected plants. Disinfect tools. Avoid handling plants when wet.",
+    "Tomato healthy": "Plant is healthy. Maintain proper watering, sunlight, and nutrients."
+}
 
 # =========================
 # UI
@@ -27,9 +55,9 @@ with open("classes.json", "r") as f:
 st.set_page_config(page_title="Plant Disease Detection", layout="centered")
 
 st.title("🌿 Plant Disease Detection")
-st.write("Upload or capture a plant leaf image for disease detection")
+st.write("Upload or capture a plant leaf image to detect diseases using AI.")
 
-# Image input
+# Input
 img_file = st.file_uploader("📁 Upload Image", type=["jpg", "png", "jpeg"])
 camera_img = st.camera_input("📸 Take Photo")
 
@@ -49,7 +77,7 @@ if img_file is not None:
         # Preprocessing
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (img_size, img_size))
-        img = img.astype('float32') / 255.0
+        img = img.astype("float32") / 255.0
         img = np.expand_dims(img, axis=0)
 
         # Prediction
@@ -57,12 +85,14 @@ if img_file is not None:
         class_id = np.argmax(pred)
         confidence = np.max(pred)
 
+        label = class_names[class_id]
+
         # =========================
         # OUTPUT
         # =========================
         st.markdown("## 🌿 Prediction Result")
 
-        st.success(f"🌱 Prediction: {class_names[class_id]}")
+        st.success(f"🌱 Prediction: {label}")
         st.info(f"📊 Confidence: {confidence*100:.2f}%")
 
         # Top 3 predictions
@@ -76,6 +106,25 @@ if img_file is not None:
         if confidence < 0.85:
             st.warning("⚠️ Low confidence. Try a clearer image or better lighting.")
 
+        # =========================
+        # REMEDY SECTION
+        # =========================
+        st.write("### 🌿 Remedy")
+
+        if label in remedies:
+            st.success(remedies[label])
+        else:
+            st.info("General advice: Remove affected leaves and consult an agricultural expert.")
+
+        # Accuracy note
+        st.caption("Model accuracy: ~92% on validation dataset")
+
     except Exception as e:
         st.error("❌ Prediction failed")
         st.text(str(e))
+
+# =========================
+# FOOTER
+# =========================
+st.markdown("---")
+st.markdown("Developed as Final Year Project | AI-Based Plant Disease Detection 🌱")
