@@ -33,7 +33,7 @@ def is_leaf_image(img):
 
 
 # =========================
-# GRAD-CAM HEATMAP
+# GRAD-CAM HEATMAP (FIXED)
 # =========================
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
     grad_model = tf.keras.models.Model(
@@ -54,8 +54,11 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
     heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
 
-    heatmap = np.maximum(heatmap, 0) / np.max(heatmap + 1e-8)
-    return heatmap.numpy()
+    # 🔥 FIXED PART
+    heatmap = heatmap.numpy()
+    heatmap = np.maximum(heatmap, 0) / (np.max(heatmap) + 1e-8)
+
+    return heatmap
 
 
 def overlay_heatmap(img, heatmap):
@@ -149,14 +152,21 @@ if img_file is not None:
         st.success(f"🌱 {label}")
         st.info(f"📊 Confidence: {confidence*100:.2f}%")
 
-        # Top 3
+        # Top 3 predictions
         st.write("### 🔍 Top Predictions")
         top3 = np.argsort(pred[0])[-3:][::-1]
         for i in top3:
             st.write(f"{class_names[i]}: {pred[0][i]*100:.2f}%")
 
-        # Heatmap
+        # Confidence warning
+        if confidence < 0.85:
+            st.warning("⚠️ Low confidence. Try a clearer image.")
+
+        # =========================
+        # HEATMAP
+        # =========================
         st.write("### 🔥 Model Focus (Heatmap)")
+
         last_conv_layer = [layer.name for layer in model.layers if "conv" in layer.name][-1]
 
         heatmap = make_gradcam_heatmap(img, model, last_conv_layer)
@@ -164,8 +174,11 @@ if img_file is not None:
 
         st.image(heatmap_img, caption="Model Attention Area", use_column_width=True)
 
-        # Remedy
+        # =========================
+        # REMEDY
+        # =========================
         st.write("### 🌿 Remedy")
+
         if label in remedies:
             st.success(remedies[label])
         else:
