@@ -33,7 +33,29 @@ def is_leaf_image(img):
 
 
 # =========================
-# GRAD-CAM HEATMAP (FIXED)
+# SEVERITY DETECTION
+# =========================
+def get_severity(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    lower_green = np.array([25, 40, 40])
+    upper_green = np.array([90, 255, 255])
+
+    green_mask = cv2.inRange(hsv, lower_green, upper_green)
+
+    green_ratio = np.sum(green_mask > 0) / green_mask.size
+    disease_ratio = 1 - green_ratio
+
+    if disease_ratio < 0.10:
+        return "Mild 🟢"
+    elif disease_ratio < 0.30:
+        return "Moderate 🟡"
+    else:
+        return "Severe 🔴"
+
+
+# =========================
+# GRAD-CAM HEATMAP
 # =========================
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
     grad_model = tf.keras.models.Model(
@@ -54,7 +76,6 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
     heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
 
-    # 🔥 FIXED PART
     heatmap = heatmap.numpy()
     heatmap = np.maximum(heatmap, 0) / (np.max(heatmap) + 1e-8)
 
@@ -129,12 +150,15 @@ if img_file is not None:
     st.image(img, caption="📷 Input Image", use_column_width=True)
 
     try:
-        # Leaf detection
+        # Leaf check
         if not is_leaf_image(img):
             st.error("❌ Not a plant leaf. Please upload a leaf image.")
             st.stop()
 
         original_img = img.copy()
+
+        # 🔥 SEVERITY CALCULATION (before resize)
+        severity = get_severity(original_img)
 
         # Preprocess
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -152,7 +176,10 @@ if img_file is not None:
         st.success(f"🌱 {label}")
         st.info(f"📊 Confidence: {confidence*100:.2f}%")
 
-        # Top 3 predictions
+        # 🔥 SHOW SEVERITY
+        st.write(f"🌡 **Severity: {severity}**")
+
+        # Top 3
         st.write("### 🔍 Top Predictions")
         top3 = np.argsort(pred[0])[-3:][::-1]
         for i in top3:
@@ -162,11 +189,8 @@ if img_file is not None:
         if confidence < 0.85:
             st.warning("⚠️ Low confidence. Try a clearer image.")
 
-        # =========================
-        # HEATMAP
-        # =========================
+        # Heatmap
         st.write("### 🔥 Model Focus (Heatmap)")
-
         last_conv_layer = [layer.name for layer in model.layers if "conv" in layer.name][-1]
 
         heatmap = make_gradcam_heatmap(img, model, last_conv_layer)
@@ -174,11 +198,8 @@ if img_file is not None:
 
         st.image(heatmap_img, caption="Model Attention Area", use_column_width=True)
 
-        # =========================
-        # REMEDY
-        # =========================
+        # Remedy
         st.write("### 🌿 Remedy")
-
         if label in remedies:
             st.success(remedies[label])
         else:
